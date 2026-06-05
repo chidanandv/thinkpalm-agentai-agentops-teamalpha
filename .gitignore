@@ -1,0 +1,36 @@
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Runtime data (SQLite databases)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# IDE / OS
+.vs/
+.idea/
+*.swp
+*.log
+.DS_Store
+Thumbs.db
+
+# Cursor / local assets
+assets/
