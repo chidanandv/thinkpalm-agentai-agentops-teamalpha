@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fleet Health — Operations Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="/static/js/dashboard.js?v=1" defer></script>
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 18h18M5 14l7-9 7 9M8 14h8v4H8z"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Fleet Health</h1>
+        <p class="brand-sub">Delivery Report · Multi-Agent Pipeline</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="api-status" class="status-pill" data-state="checking">API</span>
+      <span id="llm-status" class="status-pill muted" data-state="unknown">LLM</span>
+      <button type="button" id="btn-open-docs" class="btn btn-ghost">API Docs</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar panel">
+      <section class="sidebar-section">
+        <h2>Generate report</h2>
+        <p class="hint">Run the 4-agent LangGraph pipeline on bundled sample fleet data.</p>
+        <button type="button" id="btn-run-sample" class="btn btn-primary btn-block">
+          <span class="btn-label">Run sample pipeline</span>
+          <span class="btn-spinner" hidden></span>
+        </button>
+      </section>
+
+      <section class="sidebar-section">
+        <h2>Report history</h2>
+        <label class="field-label" for="recent-select">Recent reports</label>
+        <select id="recent-select" class="input">
+          <option value="">Loading history…</option>
+        </select>
+        <button type="button" id="btn-load-history" class="btn btn-secondary btn-block" disabled>
+          Load selected report
+        </button>
+      </section>
+
+      <section class="sidebar-section">
+        <h2>Agent pipeline</h2>
+        <ol id="pipeline-steps" class="pipeline-steps">
+          <li data-agent="ingestion_agent"><span class="step-num">1</span> Ingestion</li>
+          <li data-agent="anomaly_agent"><span class="step-num">2</span> Anomaly detection</li>
+          <li data-agent="performance_agent"><span class="step-num">3</span> Performance</li>
+          <li data-agent="escalation_agent"><span class="step-num">4</span> Escalation</li>
+        </ol>
+      </section>
+    </aside>
+
+    <main class="main">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon" aria-hidden="true">⚓</div>
+        <h2>Operations center ready</h2>
+        <p>Run the sample pipeline or load a saved report to view fleet health, anomalies, escalations, and agent outputs.</p>
+      </div>
+
+      <div id="dashboard" class="dashboard" hidden>
+        <div class="report-header panel">
+          <div>
+            <p class="report-meta">Thread <code id="display-thread-id">—</code></p>
+            <p class="report-time" id="display-generated-at">—</p>
+            <p class="report-fleet" id="display-fleet-name">—</p>
+          </div>
+          <div class="report-actions">
+            <button type="button" id="btn-copy-summary" class="btn btn-ghost">Copy summary</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid" id="kpi-grid"></div>
+
+        <div class="charts-row">
+          <div class="panel chart-card">
+            <h3>Anomalies by severity</h3>
+            <canvas id="chart-severity" height="180"></canvas>
+          </div>
+          <div class="panel chart-card">
+            <h3>Anomalies by type</h3>
+            <canvas id="chart-type" height="180"></canvas>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab active" data-tab="overview" role="tab">Overview</button>
+          <button type="button" class="tab" data-tab="vessels" role="tab">Vessels</button>
+          <button type="button" class="tab" data-tab="anomalies" role="tab">Anomalies</button>
+          <button type="button" class="tab" data-tab="escalations" role="tab">Escalations</button>
+          <button type="button" class="tab" data-tab="agents" role="tab">Agent trace</button>
+        </div>
+
+        <div id="panel-overview" class="tab-panel active">
+          <article class="panel summary-card">
+            <h3>Executive summary</h3>
+            <p id="executive-summary" class="prose"></p>
+          </article>
+          <article class="panel summary-card">
+            <h3>Recommendations</h3>
+            <ul id="recommendations-list" class="rec-list"></ul>
+          </article>
+        </div>
+
+        <div id="panel-vessels" class="tab-panel" hidden>
+          <div id="vessel-cards" class="vessel-grid"></div>
+        </div>
+
+        <div id="panel-anomalies" class="tab-panel" hidden>
+          <div class="panel table-wrap">
+            <table class="data-table" id="anomalies-table">
+              <thead>
+                <tr>
+                  <th>Vessel</th>
+                  <th>Type</th>
+                  <th>Severity</th>
+                  <th>Description</th>
+                  <th>Metric</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <p id="no-anomalies" class="empty-inline" hidden>No anomalies detected.</p>
+          </div>
+        </div>
+
+        <div id="panel-escalations" class="tab-panel" hidden>
+          <div id="escalation-list" class="escalation-list"></div>
+          <p id="no-escalations" class="empty-inline" hidden>No shore-side escalations required.</p>
+        </div>
+
+        <div id="panel-agents" class="tab-panel" hidden>
+          <div id="agent-cards" class="agent-grid"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <div id="loading-overlay" class="loading-overlay" hidden>
+    <div class="loading-card panel">
+      <div class="loading-spinner"></div>
+      <p class="loading-title">Running agent pipeline</p>
+      <p class="loading-sub" id="loading-status">Ingestion → Anomaly → Performance → Escalation</p>
+    </div>
+  </div>
+</body>
+</html>

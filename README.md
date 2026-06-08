@@ -12,6 +12,7 @@ Built with **LangGraph**, **FastAPI**, **Claude API**, and **SQLite**.
 - **SQLite memory** for vessel snapshots, report history, agent context, and LangGraph checkpoints
 - **Rule-based + LLM hybrid** anomaly detection (fuel overconsumption, schedule slippage, overdue maintenance)
 - **REST API** with OpenAPI docs and sample data endpoint
+- **Operations dashboard** — dark-theme UI with KPIs, charts, vessel cards, anomalies, escalations, and agent trace
 - **Deterministic fallback** when no Claude API key is configured (CI-friendly)
 
 ## Project Structure
@@ -24,6 +25,7 @@ thinkpalm-agentai-agentops-teamalpha/
 │   │   ├── tools/             # Parser, anomaly, and memory tools
 │   │   ├── memory/            # SQLite persistence layer
 │   │   ├── schemas/           # Pydantic models
+│   │   ├── static/            # Dashboard UI (HTML, CSS, JS)
 │   │   ├── config.py
 │   │   └── main.py            # FastAPI application
 │   └── data/
@@ -83,12 +85,22 @@ uvicorn fleet_health.main:app --reload --host 127.0.0.1 --port 8001
 
 > **Note:** Port 8000 may be occupied by another local service. Default port is **8001**.
 
+### Open the dashboard
+
+Navigate to **http://127.0.0.1:8001/** for the Fleet Health Operations Center:
+
+- Run the sample pipeline with one click
+- View KPIs, severity/type charts, vessel performance cards
+- Browse anomalies, shore-side escalations, and agent trace
+- Load previous reports from SQLite history
+
 ### Verify the service
 
 Open in your browser:
 
 | URL | Description |
 |-----|-------------|
+| http://127.0.0.1:8001/ | **Operations dashboard** |
 | http://127.0.0.1:8001/health | Health check |
 | http://127.0.0.1:8001/docs | Swagger UI (interactive API docs) |
 | http://127.0.0.1:8001/api/v1/agents | Agent catalogue |
@@ -106,6 +118,12 @@ curl -X POST http://127.0.0.1:8001/api/v1/reports/generate/sample
 ```
 
 ## Screenshots
+
+### Operations Dashboard
+
+The dashboard provides a full fleet operations view: KPI cards, Chart.js analytics, tabbed panels for vessels/anomalies/escalations, and live agent pipeline status.
+
+Open **http://127.0.0.1:8001/** after starting the server.
 
 ### Architecture Diagram
 
