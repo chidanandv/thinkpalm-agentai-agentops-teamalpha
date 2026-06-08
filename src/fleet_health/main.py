@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from fleet_health import __version__
@@ -17,6 +19,9 @@ from fleet_health.schemas.models import FleetHealthReport, FleetReportRequest
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+SAMPLES_DIR = Path(__file__).resolve().parent.parent / "data" / "samples"
 
 app = FastAPI(
     title="Fleet Health & Delivery Report API",
@@ -35,7 +40,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SAMPLES_DIR = Path(__file__).resolve().parent.parent / "data" / "samples"
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 class ReportResponse(BaseModel):
@@ -66,10 +72,25 @@ async def health_check() -> HealthResponse:
     )
 
 
-@app.get("/", tags=["health"])
-async def root() -> dict[str, str]:
+@app.get("/", tags=["dashboard"], include_in_schema=False)
+async def serve_dashboard() -> FileResponse:
+    """Fleet Health operations dashboard."""
+    index = STATIC_DIR / "index.html"
+    if not index.exists():
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    return FileResponse(index)
+
+
+@app.get("/index.html", tags=["dashboard"], include_in_schema=False)
+async def serve_dashboard_alias() -> FileResponse:
+    return await serve_dashboard()
+
+
+@app.get("/api", tags=["health"])
+async def api_root() -> dict[str, str]:
     return {
         "service": "Fleet Health & Delivery Report API",
+        "dashboard": "/",
         "docs": "/docs",
         "health": "/health",
     }

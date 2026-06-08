@@ -16,6 +16,13 @@ def test_health_endpoint():
 def test_root_endpoint():
     response = client.get("/")
     assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+    assert "Fleet Health" in response.text
+
+
+def test_api_root():
+    response = client.get("/api")
+    assert response.status_code == 200
     assert "docs" in response.json()
 
 
