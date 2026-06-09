@@ -178,6 +178,31 @@ async def get_latest_report() -> dict[str, Any]:
     }
 
 
+@app.get("/api/v1/fleet/trends")
+async def get_fleet_trends(limit: int = 10) -> dict[str, Any]:
+    """Anomaly and escalation trends across recent saved reports."""
+    reports = memory_store.get_recent_reports(limit=min(limit, 50))
+    trends: list[dict[str, Any]] = []
+    for entry in reversed(reports):
+        rep = entry["report"]
+        vessels = rep.get("vessel_summaries", [])
+        trends.append(
+            {
+                "id": entry["id"],
+                "created_at": entry["created_at"],
+                "fleet_name": entry["fleet_name"],
+                "report_period": entry.get("report_period", ""),
+                "anomaly_count": entry["anomaly_count"],
+                "escalation_count": entry["escalation_count"],
+                "vessel_count": len(vessels),
+                "red_count": sum(1 for v in vessels if v.get("overall_status") == "Red"),
+                "amber_count": sum(1 for v in vessels if v.get("overall_status") == "Amber"),
+                "green_count": sum(1 for v in vessels if v.get("overall_status") == "Green"),
+            }
+        )
+    return {"count": len(trends), "trends": trends}
+
+
 @app.get("/api/v1/vessels/{vessel_id}/history")
 async def get_vessel_history(
     vessel_id: str, snapshot_type: str | None = None, limit: int = 10
