@@ -18,6 +18,7 @@ def test_root_endpoint():
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
     assert "Fleet Health" in response.text
+    assert "User Guide" in response.text
 
 
 def test_api_root():
@@ -34,6 +35,15 @@ def test_list_agents():
     names = {a["name"] for a in agents}
     assert "ingestion_agent" in names
     assert "escalation_agent" in names
+
+
+def test_fleet_trends():
+    client.post("/api/v1/reports/generate/sample")
+    response = client.get("/api/v1/fleet/trends?limit=5")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] >= 1
+    assert "anomaly_count" in body["trends"][0]
 
 
 def test_generate_sample_report():
