@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fleet Command Center — Live View</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/live.css?v=1" />
+  <script src="/static/js/live.js?v=1" defer></script>
+</head>
+<body>
+  <canvas id="particle-canvas" aria-hidden="true"></canvas>
+  <div class="scan-line" aria-hidden="true"></div>
+
+  <header class="live-topbar">
+    <div class="live-brand">
+      <div class="live-logo pulse-ring">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Fleet Command Center</h1>
+        <p class="live-sub">Live operations · Real-time fleet posture</p>
+      </div>
+    </div>
+    <div class="live-actions">
+      <span id="live-clock" class="live-clock">—</span>
+      <span id="live-api" class="live-pill" data-state="checking">Connecting</span>
+      <a href="/" class="btn-live btn-live-ghost">← Operations Dashboard</a>
+      <button type="button" id="btn-live-theme" class="btn-live btn-live-icon" title="Toggle theme">🌙</button>
+    </div>
+  </header>
+
+  <main class="live-main">
+    <section class="hero-panel glass reveal">
+      <div class="radar-wrap">
+        <div class="radar">
+          <div class="radar-sweep"></div>
+          <div class="radar-grid"></div>
+          <div id="radar-dots" class="radar-dots"></div>
+        </div>
+        <div class="hero-stats">
+          <div class="hero-score">
+            <span class="hero-score-label">Fleet health</span>
+            <span class="hero-score-value count-up" id="hero-score">—</span>
+            <span class="hero-score-grade" id="hero-grade">—</span>
+          </div>
+          <div class="hero-metrics">
+            <div class="hero-metric"><span id="hero-vessels">0</span><label>Vessels</label></div>
+            <div class="hero-metric warn"><span id="hero-anomalies">0</span><label>Anomalies</label></div>
+            <div class="hero-metric crit"><span id="hero-escalations">0</span><label>Escalations</label></div>
+          </div>
+        </div>
+      </div>
+      <p class="hero-summary" id="hero-summary">Loading fleet data…</p>
+    </section>
+
+    <div class="live-grid">
+      <section class="glass reveal delay-1">
+        <h2 class="section-title"><span class="title-glow">Vessel status</span></h2>
+        <div id="vessel-orbs" class="vessel-orbs"></div>
+        <p id="no-vessels-live" class="live-empty" hidden>No vessel data — run the pipeline on the operations dashboard.</p>
+      </section>
+
+      <section class="glass reveal delay-2">
+        <h2 class="section-title"><span class="title-glow">Agent activity</span></h2>
+        <ul id="agent-stream" class="agent-stream"></ul>
+      </section>
+
+      <section class="glass reveal delay-3">
+        <h2 class="section-title"><span class="title-glow">Priority queue</span></h2>
+        <ul id="priority-queue" class="priority-queue"></ul>
+        <p id="no-priority" class="live-empty" hidden>All clear — no critical items.</p>
+      </section>
+
+      <section class="glass reveal delay-4">
+        <h2 class="section-title"><span class="title-glow">Trend pulse</span></h2>
+        <div class="trend-bars" id="trend-bars"></div>
+        <p id="no-trends-live" class="live-empty" hidden>Run more reports to see trends.</p>
+      </section>
+    </div>
+
+    <footer class="live-footer reveal delay-5">
+      <span>Last sync: <strong id="last-sync">—</strong></span>
+      <button type="button" id="btn-live-refresh" class="btn-live btn-live-primary">↻ Sync now</button>
+      <a href="/" class="btn-live btn-live-ghost">Open full dashboard</a>
+    </footer>
+  </main>
+</body>
+</html>

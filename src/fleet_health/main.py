@@ -87,11 +87,21 @@ async def serve_dashboard_alias() -> FileResponse:
     return await serve_dashboard()
 
 
+@app.get("/live", tags=["dashboard"], include_in_schema=False)
+async def serve_live_dashboard() -> FileResponse:
+    """Fleet Command Center — animated live operations view."""
+    live = STATIC_DIR / "live.html"
+    if not live.exists():
+        raise HTTPException(status_code=404, detail="Live dashboard not found")
+    return FileResponse(live)
+
+
 @app.get("/api", tags=["health"])
 async def api_root() -> dict[str, str]:
     return {
         "service": "Fleet Health & Delivery Report API",
         "dashboard": "/",
+        "live_dashboard": "/live",
         "docs": "/docs",
         "health": "/health",
     }

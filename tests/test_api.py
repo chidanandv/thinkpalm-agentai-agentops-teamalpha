@@ -19,6 +19,15 @@ def test_root_endpoint():
     assert "text/html" in response.headers.get("content-type", "")
     assert "Fleet Health" in response.text
     assert "User Guide" in response.text
+    assert "Command Center" in response.text
+
+
+def test_live_dashboard():
+    response = client.get("/live")
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+    assert "Fleet Command Center" in response.text
+    assert "Operations Dashboard" in response.text
 
 
 def test_api_root():

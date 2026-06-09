@@ -178,6 +178,44 @@ body.scroll-locked {
 
 .btn-icon:hover { background: var(--bg-panel-hover); }
 
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.btn-nav-live {
+  position: relative;
+  border-color: rgba(34, 211, 238, 0.35);
+  color: var(--accent);
+}
+
+.btn-nav-live::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.4), transparent) border-box;
+  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+
+.btn-nav-live:hover::after {
+  opacity: 1;
+  animation: navGlow 1.5s ease-in-out infinite;
+}
+
+@keyframes navGlow {
+  0%, 100% { box-shadow: 0 0 8px rgba(34, 211, 238, 0.2); }
+  50% { box-shadow: 0 0 16px rgba(34, 211, 238, 0.35); }
+}
+
 /* Layout */
 .layout {
   position: relative;
