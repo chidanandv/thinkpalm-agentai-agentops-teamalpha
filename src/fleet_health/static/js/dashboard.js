@@ -10,6 +10,8 @@ let typeChart = null;
 let trendsChart = null;
 let currentReport = null;
 let allAnomalies = [];
+let allVessels = [];
+let reportHistoryCache = [];
 let pipelineAbort = null;
 let pipelineRunning = false;
 const PIPELINE_TIMEOUT_MS = 60000;
@@ -39,10 +41,15 @@ function showToast(msg, type = "success") {
   showToast._t = setTimeout(() => (el.hidden = true), 3500);
 }
 
+function setScrollLock(locked) {
+  document.body.classList.toggle("scroll-locked", !!locked);
+}
+
 function setLoading(on) {
   const overlay = $("#loading-overlay");
   const btn = $("#btn-run-sample");
   if (overlay) overlay.hidden = !on;
+  setScrollLock(on);
   if (btn) {
     btn.disabled = !!on;
     btn.classList.toggle("is-loading", !!on);
@@ -101,6 +108,13 @@ function switchToTab(tabId) {
     p.hidden = !on;
     p.classList.toggle("active", on);
   });
+}
+
+function deltaHtml(cur, prev, label) {
+  const diff = cur - prev;
+  if (diff > 0) return `<span class="delta-item delta-up">${label}: +${diff} (${prev} → ${cur})</span>`;
+  if (diff < 0) return `<span class="delta-item delta-down">${label}: ${diff} (${prev} → ${cur})</span>`;
+  return `<span class="delta-item delta-same">${label}: no change (${cur})</span>`;
 }
 
 /* ── API ─────────────────────────────────────────────────── */
@@ -186,6 +200,7 @@ async function loadHistory() {
     });
     $("#btn-load-history").disabled = false;
     $("#stat-report-count").textContent = String(data.count);
+    reportHistoryCache = data.reports || [];
     return true;
   } catch (e) {
     sel.innerHTML = `<option value="">Failed to load history</option>`;
@@ -238,14 +253,21 @@ async function runSamplePipeline() {
     }, i * 600)
   );
 
+  const t0 = performance.now();
   try {
     const result = await api(
       "/api/v1/reports/generate/sample",
       { method: "GET", signal: pipelineAbort.signal },
       PIPELINE_TIMEOUT_MS
     );
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    const dur = $("#pipeline-duration");
+    if (dur) {
+      dur.textContent = `Last run completed in ${secs}s`;
+      dur.hidden = false;
+    }
     renderReport(result);
-    showToast("Report generated successfully");
+    showToast(`Report generated in ${secs}s`);
     await loadHistory();
     animatePipeline(false, true);
   } catch (e) {
@@ -296,9 +318,15 @@ function renderReport(payload) {
     $("#display-fleet-name").textContent = `${report.fleet_name || "—"} · ${report.report_period || ""}`;
 
     allAnomalies = anomalies;
+    allVessels = vessels;
     if ($("#anomaly-search")) $("#anomaly-search").value = "";
     if ($("#anomaly-filter-severity")) $("#anomaly-filter-severity").value = "";
+    if ($("#vessel-search")) $("#vessel-search").value = "";
+    if ($("#vessel-filter-status")) $("#vessel-filter-status").value = "";
     renderFleetOverview(vessels, anomalies);
+    renderReportDelta(payload);
+    renderAlertFeed(anomalies, escalations);
+    updateTabBadges(anomalies, escalations);
     renderKPIs(payload, report, vessels, anomalies, escalations);
     renderCharts(anomalies);
     renderExecutive(payload, report);
@@ -313,6 +341,103 @@ function renderReport(payload) {
     console.error("renderReport failed:", e);
     showToast("Failed to render report: " + e.message, "error");
     throw e;
+  }
+}
+
+function renderReportDelta(payload) {
+  const el = $("#report-delta");
+  if (!el || reportHistoryCache.length < 2) {
+    if (el) el.hidden = true;
+    return;
+  }
+  const threadId = String(payload.thread_id || "");
+  const idx = reportHistoryCache.findIndex((r) => String(r.id) === threadId);
+  const prev = idx >= 0 ? reportHistoryCache[idx + 1] : reportHistoryCache[1];
+  if (!prev) {
+    el.hidden = true;
+    return;
+  }
+  const curA = payload.anomalies_count ?? payload.report?.anomalies?.length ?? 0;
+  const curE = payload.escalations_count ?? payload.report?.escalations?.length ?? 0;
+  el.innerHTML = `
+    <span class="delta-label">vs previous report</span>
+    ${deltaHtml(curA, prev.anomaly_count ?? 0, "Anomalies")}
+    ${deltaHtml(curE, prev.escalation_count ?? 0, "Escalations")}`;
+  el.hidden = false;
+}
+
+function renderAlertFeed(anomalies, escalations) {
+  const section = $("#sidebar-alerts");
+  const feed = $("#alert-feed");
+  const empty = $("#no-alerts");
+  if (!section || !feed) return;
+
+  const items = [];
+  anomalies
+    .filter((a) => ["critical", "high"].includes(sevClass(a.severity)))
+    .forEach((a) => {
+      items.push({
+        cls: sevClass(a.severity),
+        title: `${a.vessel_id} · ${TYPE_LABELS[a.anomaly_type] || a.anomaly_type}`,
+        text: a.description,
+        tab: "anomalies",
+        vessel: a.vessel_id,
+      });
+    });
+  escalations
+    .filter((e) => sevClass(e.severity) === "critical")
+    .forEach((e) => {
+      items.push({
+        cls: "critical",
+        title: `${e.vessel_id} · Escalation`,
+        text: e.reason,
+        tab: "escalations",
+        vessel: e.vessel_id,
+      });
+    });
+
+  section.hidden = false;
+  if (!items.length) {
+    feed.innerHTML = "";
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  feed.innerHTML = items
+    .slice(0, 8)
+    .map(
+      (it, i) => `
+    <li class="alert-item ${it.cls}" data-alert-idx="${i}">
+      <strong>${it.title}</strong>
+      <span>${it.text}</span>
+    </li>`
+    )
+    .join("");
+
+  feed.querySelectorAll(".alert-item").forEach((li, i) => {
+    const it = items[i];
+    li.addEventListener("click", () => {
+      if (it.tab === "anomalies" && it.vessel) {
+        $("#anomaly-filter-vessel").value = it.vessel;
+        applyAnomalyFilters();
+      }
+      switchToTab(it.tab);
+    });
+  });
+}
+
+function updateTabBadges(anomalies, escalations) {
+  const ba = $("#badge-anomalies");
+  const be = $("#badge-escalations");
+  const ac = anomalies.length;
+  const ec = escalations.length;
+  if (ba) {
+    ba.textContent = String(ac);
+    ba.hidden = ac === 0;
+  }
+  if (be) {
+    be.textContent = String(ec);
+    be.hidden = ec === 0;
   }
 }
 
@@ -363,13 +488,14 @@ function renderTrendChart(trends) {
 
   if (trendsChart) trendsChart.destroy();
 
+  const wrap = canvas.closest(".chart-wrap");
   if (!trends.length) {
     empty.hidden = false;
-    canvas.hidden = true;
+    if (wrap) wrap.hidden = true;
     return;
   }
   empty.hidden = true;
-  canvas.hidden = false;
+  if (wrap) wrap.hidden = false;
 
   if (typeof Chart === "undefined") return;
 
@@ -523,8 +649,30 @@ function populateVesselFilter(vessels) {
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
 
+function getFilteredVessels() {
+  const q = ($("#vessel-search")?.value || "").trim().toLowerCase();
+  const status = $("#vessel-filter-status")?.value || "";
+  return allVessels.filter((v) => {
+    if (status && v.overall_status !== status) return false;
+    if (q) {
+      const hay = `${v.vessel_id} ${v.overall_status} ${v.fuel_performance} ${v.schedule_compliance}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
 function renderVessels(vessels) {
-  $("#vessel-cards").innerHTML = vessels
+  const list = vessels ?? getFilteredVessels();
+  const empty = $("#no-vessels");
+  if (!list.length) {
+    $("#vessel-cards").innerHTML = "";
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  $("#vessel-cards").innerHTML = list
     .map(
       (v) => `
     <article class="vessel-card" data-vessel="${v.vessel_id}" role="button" tabindex="0" title="View anomalies for this vessel">
@@ -546,23 +694,6 @@ function renderVessels(vessels) {
     </article>`
     )
     .join("");
-
-  $$(".vessel-card[data-vessel]").forEach((card) => {
-    const open = () => {
-      const id = card.dataset.vessel;
-      $("#anomaly-filter-vessel").value = id;
-      switchToTab("anomalies");
-      applyAnomalyFilters();
-      showToast(`Filtering anomalies for ${id}`);
-    };
-    card.addEventListener("click", open);
-    card.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        open();
-      }
-    });
-  });
 }
 
 function getFilteredAnomalies() {
@@ -581,7 +712,18 @@ function getFilteredAnomalies() {
 }
 
 function applyAnomalyFilters() {
-  renderAnomalies(getFilteredAnomalies(), true);
+  const filtered = getFilteredAnomalies();
+  renderAnomalies(filtered, true);
+  const cnt = $("#anomaly-filter-count");
+  if (cnt) {
+    const total = allAnomalies.length;
+    if (filtered.length !== total || ($("#anomaly-search")?.value || $("#anomaly-filter-severity")?.value || $("#anomaly-filter-vessel")?.value)) {
+      cnt.textContent = `Showing ${filtered.length} of ${total}`;
+      cnt.hidden = false;
+    } else {
+      cnt.hidden = true;
+    }
+  }
 }
 
 function renderAnomalies(anomalies, isFiltered = false) {
@@ -652,6 +794,32 @@ function renderAgents(outputs) {
 
 /* ── Export, print, theme ─────────────────────────────────── */
 
+function exportAnomaliesCsv() {
+  if (!allAnomalies.length) {
+    showToast("No anomalies to export", "error");
+    return;
+  }
+  const rows = [["Vessel", "Type", "Severity", "Description", "Metric"]];
+  allAnomalies.forEach((a) => {
+    rows.push([
+      a.vessel_id,
+      TYPE_LABELS[a.anomaly_type] || a.anomaly_type,
+      a.severity,
+      `"${(a.description || "").replace(/"/g, '""')}"`,
+      a.metric_value ?? "",
+    ]);
+  });
+  const csv = rows.map((r) => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fleet-anomalies-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("Anomalies exported as CSV");
+}
+
 function exportReportJson() {
   if (!currentReport) {
     showToast("No report loaded", "error");
@@ -696,6 +864,61 @@ function updateThemeButton(theme) {
   btn.title = theme === "light" ? "Switch to dark mode" : "Switch to light mode";
 }
 
+async function refreshDashboard() {
+  const btn = $("#btn-refresh");
+  if (btn) btn.disabled = true;
+  try {
+    const ok = await loadLatestReport();
+    await loadHistory();
+    await loadFleetTrends();
+    showToast(ok ? "Dashboard refreshed" : "No saved reports to load", ok ? "success" : "error");
+  } catch (e) {
+    showToast(e.message || "Refresh failed", "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function initVesselFilters() {
+  const rerender = () => renderVessels();
+  $("#vessel-search")?.addEventListener("input", rerender);
+  $("#vessel-filter-status")?.addEventListener("change", rerender);
+}
+
+function initVesselCardClicks() {
+  $("#vessel-cards")?.addEventListener("click", (e) => {
+    const card = e.target.closest(".vessel-card[data-vessel]");
+    if (!card) return;
+    const id = card.dataset.vessel;
+    $("#anomaly-filter-vessel").value = id;
+    switchToTab("anomalies");
+    applyAnomalyFilters();
+    showToast(`Filtering anomalies for ${id}`);
+  });
+  $("#vessel-cards")?.addEventListener("keydown", (e) => {
+    const card = e.target.closest(".vessel-card[data-vessel]");
+    if (!card || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault();
+    card.click();
+  });
+}
+
+function initKeyboardShortcuts() {
+  document.addEventListener("keydown", (e) => {
+    if (e.target.matches("input, textarea, select")) return;
+    if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+      e.preventDefault();
+      openHelp();
+    } else if (e.key === "r" && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      if (!pipelineRunning) runSamplePipeline();
+    } else if (e.key === "f" && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      refreshDashboard();
+    }
+  });
+}
+
 function initAnomalyFilters() {
   const rerender = () => applyAnomalyFilters();
   $("#anomaly-search")?.addEventListener("input", rerender);
@@ -715,7 +938,6 @@ function openHelp() {
   const modal = $("#help-modal");
   if (!modal) return;
   modal.hidden = false;
-  document.body.classList.add("help-open");
   $("#btn-close-help")?.focus();
 }
 
@@ -723,7 +945,6 @@ function closeHelp() {
   const modal = $("#help-modal");
   if (!modal) return;
   modal.hidden = true;
-  document.body.classList.remove("help-open");
 }
 
 function initHelp() {
@@ -739,14 +960,7 @@ function initHelp() {
 
 function initTabs() {
   $$(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const id = tab.dataset.tab;
-      $$(".tab").forEach((t) => t.classList.toggle("active", t === tab));
-      $$(".tab-panel").forEach((p) => {
-        p.hidden = p.id !== `panel-${id}`;
-        p.classList.toggle("active", p.id === `panel-${id}`);
-      });
-    });
+    tab.addEventListener("click", () => switchToTab(tab.dataset.tab));
   });
 }
 
@@ -771,12 +985,16 @@ function loadSelectedHistory() {
 /* ── Init ────────────────────────────────────────────────── */
 
 document.addEventListener("DOMContentLoaded", async () => {
+  document.body.classList.remove("scroll-locked", "help-open");
   setLoading(false);
   initTheme();
   checkHealth();
   initTabs();
   initHelp();
   initAnomalyFilters();
+  initVesselFilters();
+  initVesselCardClicks();
+  initKeyboardShortcuts();
 
   const hasHistory = await loadHistory();
   if (hasHistory) await loadLatestReport();
@@ -785,6 +1003,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#btn-cancel-pipeline")?.addEventListener("click", cancelPipeline);
   $("#btn-load-history").addEventListener("click", loadSelectedHistory);
   $("#btn-open-docs").addEventListener("click", () => window.open("/docs", "_blank"));
+  $("#btn-refresh")?.addEventListener("click", refreshDashboard);
+  $("#btn-export-csv")?.addEventListener("click", exportAnomaliesCsv);
   $("#btn-export-json")?.addEventListener("click", exportReportJson);
   $("#btn-print-report")?.addEventListener("click", printReport);
   $("#btn-copy-summary").addEventListener("click", () => {
@@ -796,12 +1016,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   setInterval(checkHealth, 60000);
-  window.addEventListener("error", () => {
+  const unlockUi = () => {
     pipelineRunning = false;
     setLoading(false);
-  });
-  window.addEventListener("unhandledrejection", () => {
-    pipelineRunning = false;
-    setLoading(false);
-  });
+  };
+  window.addEventListener("error", unlockUi);
+  window.addEventListener("unhandledrejection", unlockUi);
+  window.addEventListener("pageshow", () => setScrollLock(false));
 });
