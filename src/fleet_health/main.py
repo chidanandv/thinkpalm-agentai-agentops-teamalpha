@@ -1,5 +1,6 @@
 """FastAPI application for Fleet Health & Delivery Report generation."""
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -106,7 +107,8 @@ async def generate_report(request: FleetReportRequest) -> ReportResponse:
         )
 
     try:
-        result = run_pipeline(
+        result = await asyncio.to_thread(
+            run_pipeline,
             voyage_reports=[v.model_dump() for v in request.voyage_reports],
             port_calls=[p.model_dump() for p in request.port_calls],
             bunker_logs=[b.model_dump() for b in request.bunker_logs],
@@ -121,6 +123,7 @@ async def generate_report(request: FleetReportRequest) -> ReportResponse:
     return ReportResponse(**result)
 
 
+@app.get("/api/v1/reports/generate/sample", response_model=ReportResponse)
 @app.post("/api/v1/reports/generate/sample", response_model=ReportResponse)
 async def generate_sample_report() -> ReportResponse:
     """Generate a report using bundled sample fleet data."""
@@ -154,6 +157,25 @@ async def get_report_history(limit: int = 10) -> dict[str, Any]:
     """Retrieve recent fleet health reports from SQLite memory."""
     reports = memory_store.get_recent_reports(limit=limit)
     return {"count": len(reports), "reports": reports}
+
+
+@app.get("/api/v1/reports/latest")
+async def get_latest_report() -> dict[str, Any]:
+    """Return the most recent saved report for instant dashboard load."""
+    reports = memory_store.get_recent_reports(limit=1)
+    if not reports:
+        raise HTTPException(status_code=404, detail="No reports found")
+    entry = reports[0]
+    rep = entry["report"]
+    return {
+        "thread_id": str(entry["id"]),
+        "executive_summary": rep.get("executive_summary", ""),
+        "recommendations": rep.get("recommendations", []),
+        "anomalies_count": entry.get("anomaly_count", 0),
+        "escalations_count": entry.get("escalation_count", 0),
+        "report": rep,
+        "agent_outputs": rep.get("raw_agent_outputs", {}),
+    }
 
 
 @app.get("/api/v1/vessels/{vessel_id}/history")

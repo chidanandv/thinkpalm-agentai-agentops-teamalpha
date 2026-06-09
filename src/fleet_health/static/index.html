@@ -7,9 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/dashboard.css?v=1" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <script src="/static/js/dashboard.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=5" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/static/js/dashboard.js?v=5" defer></script>
 </head>
 <body>
   <div class="ambient" aria-hidden="true"></div>
@@ -157,6 +157,7 @@
       <div class="loading-spinner"></div>
       <p class="loading-title">Running agent pipeline</p>
       <p class="loading-sub" id="loading-status">Ingestion → Anomaly → Performance → Escalation</p>
+      <button type="button" id="btn-cancel-pipeline" class="btn btn-ghost">Cancel</button>
     </div>
   </div>
 </body>

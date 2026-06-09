@@ -8,6 +8,9 @@ const $$ = (sel) => document.querySelectorAll(sel);
 let severityChart = null;
 let typeChart = null;
 let currentReport = null;
+let pipelineAbort = null;
+let pipelineRunning = false;
+const PIPELINE_TIMEOUT_MS = 60000;
 
 const SEV_COLORS = {
   critical: "#dc2626",
@@ -34,10 +37,14 @@ function showToast(msg, type = "success") {
 }
 
 function setLoading(on) {
-  $("#loading-overlay").hidden = !on;
+  const overlay = $("#loading-overlay");
   const btn = $("#btn-run-sample");
-  btn.disabled = on;
-  btn.querySelector(".btn-spinner").hidden = !on;
+  if (overlay) overlay.hidden = !on;
+  if (btn) {
+    btn.disabled = on;
+    const spinner = btn.querySelector(".btn-spinner");
+    if (spinner) spinner.hidden = !on;
+  }
 }
 
 function formatDate(iso) {
@@ -63,16 +70,37 @@ function statusClass(s) {
 
 /* ── API ─────────────────────────────────────────────────── */
 
-async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { Accept: "application/json", ...opts.headers },
-    ...opts,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || res.statusText);
+async function api(path, opts = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort();
+    else opts.signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
-  return res.json();
+
+  try {
+    const { signal: _ignored, ...fetchOpts } = opts;
+    const res = await fetch(path, {
+      headers: { Accept: "application/json", ...fetchOpts.headers },
+      ...fetchOpts,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(
+        typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail) || res.statusText
+      );
+    }
+    return res.json();
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new Error("Request timed out or was cancelled. Try again.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function checkHealth() {
@@ -98,7 +126,7 @@ async function loadHistory() {
     if (!data.reports?.length) {
       sel.innerHTML = '<option value="">No saved reports yet</option>';
       $("#btn-load-history").disabled = true;
-      return;
+      return false;
     }
     sel.innerHTML = '<option value="">Select a report…</option>';
     data.reports.forEach((r) => {
@@ -111,25 +139,78 @@ async function loadHistory() {
       sel.appendChild(opt);
     });
     $("#btn-load-history").disabled = false;
+    return true;
   } catch (e) {
     sel.innerHTML = `<option value="">Failed to load history</option>`;
     showToast(e.message, "error");
+    return false;
   }
 }
 
-async function runSamplePipeline() {
-  setLoading(true);
-  animatePipeline(true);
+async function loadLatestReport() {
   try {
-    const result = await api("/api/v1/reports/generate/sample", { method: "POST" });
+    const result = await api("/api/v1/reports/latest");
+    renderReport(result);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cancelPipeline(silent = false) {
+  if (pipelineAbort) {
+    pipelineAbort.abort();
+    pipelineAbort = null;
+  }
+  setLoading(false);
+  if (!silent) showToast("Pipeline cancelled", "error");
+}
+
+async function runSamplePipeline() {
+  if (pipelineRunning) return;
+
+  pipelineRunning = true;
+  if (pipelineAbort) cancelPipeline(true);
+
+  pipelineAbort = new AbortController();
+  setLoading(true);
+  const statusEl = $("#loading-status");
+  if (statusEl) statusEl.textContent = "Starting pipeline…";
+  animatePipeline(true);
+
+  const steps = [
+    "Ingestion agent — normalising data…",
+    "Anomaly agent — scanning fleet…",
+    "Performance agent — drafting summaries…",
+    "Escalation agent — flagging defects…",
+    "Compiling report…",
+  ];
+  const timers = steps.map((msg, i) =>
+    setTimeout(() => {
+      if (pipelineRunning && statusEl) statusEl.textContent = msg;
+    }, i * 600)
+  );
+
+  try {
+    const result = await api(
+      "/api/v1/reports/generate/sample",
+      { method: "GET", signal: pipelineAbort.signal },
+      PIPELINE_TIMEOUT_MS
+    );
     renderReport(result);
     showToast("Report generated successfully");
-    loadHistory();
-  } catch (e) {
-    showToast(e.message, "error");
-  } finally {
-    setLoading(false);
+    await loadHistory();
     animatePipeline(false, true);
+  } catch (e) {
+    showToast(e.message || "Pipeline failed", "error");
+    if (statusEl) statusEl.textContent = "Pipeline failed — try again or load history";
+    animatePipeline(false, false);
+    await loadLatestReport();
+  } finally {
+    timers.forEach(clearTimeout);
+    pipelineAbort = null;
+    pipelineRunning = false;
+    setLoading(false);
   }
 }
 
@@ -153,26 +234,32 @@ function animatePipeline(running, done = false) {
 /* ── Render ──────────────────────────────────────────────── */
 
 function renderReport(payload) {
-  currentReport = payload;
-  const report = payload.report || payload;
-  const anomalies = report.anomalies || [];
-  const escalations = report.escalations || [];
-  const vessels = report.vessel_summaries || [];
+  try {
+    currentReport = payload;
+    const report = payload.report || payload;
+    const anomalies = report.anomalies || [];
+    const escalations = report.escalations || [];
+    const vessels = report.vessel_summaries || [];
 
-  $("#empty-state").hidden = true;
-  $("#dashboard").hidden = false;
+    $("#empty-state").hidden = true;
+    $("#dashboard").hidden = false;
 
-  $("#display-thread-id").textContent = (payload.thread_id || "—").slice(0, 8) + "…";
-  $("#display-generated-at").textContent = formatDate(report.generated_at);
-  $("#display-fleet-name").textContent = `${report.fleet_name || "—"} · ${report.report_period || ""}`;
+    $("#display-thread-id").textContent = String(payload.thread_id || "—").slice(0, 12);
+    $("#display-generated-at").textContent = formatDate(report.generated_at);
+    $("#display-fleet-name").textContent = `${report.fleet_name || "—"} · ${report.report_period || ""}`;
 
-  renderKPIs(payload, report, vessels, anomalies, escalations);
-  renderCharts(anomalies);
-  renderExecutive(payload, report);
-  renderVessels(vessels);
-  renderAnomalies(anomalies);
-  renderEscalations(escalations);
-  renderAgents(payload.agent_outputs || report.raw_agent_outputs || {});
+    renderKPIs(payload, report, vessels, anomalies, escalations);
+    renderCharts(anomalies);
+    renderExecutive(payload, report);
+    renderVessels(vessels);
+    renderAnomalies(anomalies);
+    renderEscalations(escalations);
+    renderAgents(payload.agent_outputs || report.raw_agent_outputs || {});
+  } catch (e) {
+    console.error("renderReport failed:", e);
+    showToast("Failed to render report: " + e.message, "error");
+    throw e;
+  }
 }
 
 function renderKPIs(payload, report, vessels, anomalies, escalations) {
@@ -209,6 +296,11 @@ function renderCharts(anomalies) {
     const t = a.anomaly_type || "unknown";
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
+
+  if (typeof Chart === "undefined") {
+    console.warn("Chart.js not loaded — skipping charts");
+    return;
+  }
 
   if (severityChart) severityChart.destroy();
   if (typeChart) typeChart.destroy();
@@ -384,12 +476,16 @@ function loadSelectedHistory() {
 
 /* ── Init ────────────────────────────────────────────────── */
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  setLoading(false);
   checkHealth();
-  loadHistory();
   initTabs();
 
+  const hasHistory = await loadHistory();
+  if (hasHistory) await loadLatestReport();
+
   $("#btn-run-sample").addEventListener("click", runSamplePipeline);
+  $("#btn-cancel-pipeline")?.addEventListener("click", cancelPipeline);
   $("#btn-load-history").addEventListener("click", loadSelectedHistory);
   $("#btn-open-docs").addEventListener("click", () => window.open("/docs", "_blank"));
   $("#btn-copy-summary").addEventListener("click", () => {
@@ -401,4 +497,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   setInterval(checkHealth, 60000);
+  window.addEventListener("error", () => {
+    pipelineRunning = false;
+    setLoading(false);
+  });
+  window.addEventListener("unhandledrejection", () => {
+    pipelineRunning = false;
+    setLoading(false);
+  });
 });
