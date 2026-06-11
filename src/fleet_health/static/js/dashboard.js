@@ -12,6 +12,7 @@ let currentReport = null;
 let allAnomalies = [];
 let allVessels = [];
 let reportHistoryCache = [];
+let selectedHistoryEntry = null;
 let pipelineAbort = null;
 let pipelineRunning = false;
 const PIPELINE_TIMEOUT_MS = 60000;
@@ -117,6 +118,38 @@ function deltaHtml(cur, prev, label) {
   return `<span class="delta-item delta-same">${label}: no change (${cur})</span>`;
 }
 
+/* ── Auth ────────────────────────────────────────────────── */
+
+async function initAuth() {
+  try {
+    const res = await fetch("/api/v1/auth/me", { credentials: "include" });
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return false;
+    }
+    if (res.ok) {
+      const user = await res.json();
+      const pill = $("#user-pill");
+      if (pill && user.username && user.username !== "guest") {
+        pill.textContent = user.username;
+        pill.hidden = false;
+        pill.dataset.state = "ok";
+      }
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+async function logout() {
+  try {
+    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+  } finally {
+    window.location.href = "/login";
+  }
+}
+
 /* ── API ─────────────────────────────────────────────────── */
 
 async function api(path, opts = {}, timeoutMs = 30000) {
@@ -132,9 +165,14 @@ async function api(path, opts = {}, timeoutMs = 30000) {
     const { signal: _ignored, ...fetchOpts } = opts;
     const res = await fetch(path, {
       headers: { Accept: "application/json", ...fetchOpts.headers },
+      credentials: "include",
       ...fetchOpts,
       signal: controller.signal,
     });
+    if (res.status === 401 && !path.startsWith("/api/v1/auth")) {
+      window.location.href = "/login";
+      throw new Error("Session expired — please sign in again.");
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(
@@ -178,35 +216,108 @@ async function loadFleetTrends() {
   }
 }
 
+function historyItemLabel(r) {
+  const rep = r.report || {};
+  const date = formatDate(r.created_at);
+  return `${rep.fleet_name || "Fleet"} — ${date} (${r.anomaly_count} anom.)`;
+}
+
+function closeHistoryDropdown() {
+  const wrap = $("#history-select");
+  const list = $("#history-select-list");
+  const btn = $("#history-select-btn");
+  if (wrap) wrap.classList.remove("open");
+  if (list) list.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function openHistoryDropdown() {
+  const wrap = $("#history-select");
+  const list = $("#history-select-list");
+  const btn = $("#history-select-btn");
+  if (!wrap || !list || list.querySelectorAll("li:not(.muted)").length === 0) return;
+  wrap.classList.add("open");
+  list.hidden = false;
+  if (btn) btn.setAttribute("aria-expanded", "true");
+}
+
+function selectHistoryItem(entry, label) {
+  selectedHistoryEntry = entry;
+  const text = $("#history-select-text");
+  if (text) text.textContent = label;
+  $("#btn-load-history").disabled = false;
+  $$("#history-select-list li").forEach((li) => {
+    li.setAttribute("aria-selected", li.dataset.id === String(entry.id) ? "true" : "false");
+  });
+  closeHistoryDropdown();
+}
+
+function renderHistoryList(reports) {
+  const list = $("#history-select-list");
+  const text = $("#history-select-text");
+  if (!list || !text) return;
+
+  list.innerHTML = "";
+  selectedHistoryEntry = null;
+  $("#btn-load-history").disabled = true;
+
+  if (!reports?.length) {
+    text.textContent = "No saved reports yet";
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = "Run the sample pipeline first";
+    list.appendChild(li);
+    return;
+  }
+
+  text.textContent = "Select a report…";
+  reports.forEach((r) => {
+    const li = document.createElement("li");
+    li.role = "option";
+    li.dataset.id = r.id;
+    li.textContent = historyItemLabel(r);
+    li.title = historyItemLabel(r);
+    li.setAttribute("aria-selected", "false");
+    li.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectHistoryItem(r, li.textContent);
+    });
+    list.appendChild(li);
+  });
+}
+
 async function loadHistory() {
-  const sel = $("#recent-select");
   try {
     const data = await api("/api/v1/reports/history?limit=15");
-    sel.innerHTML = "";
-    if (!data.reports?.length) {
-      sel.innerHTML = '<option value="">No saved reports yet</option>';
-      $("#btn-load-history").disabled = true;
-      return false;
-    }
-    sel.innerHTML = '<option value="">Select a report…</option>';
-    data.reports.forEach((r) => {
-      const opt = document.createElement("option");
-      opt.value = r.id;
-      const rep = r.report || {};
-      opt.textContent = `${rep.fleet_name || "Fleet"} · ${formatDate(r.created_at)} · ${r.anomaly_count} anomalies`;
-      opt._reportData = rep;
-      opt._meta = r;
-      sel.appendChild(opt);
-    });
-    $("#btn-load-history").disabled = false;
-    $("#stat-report-count").textContent = String(data.count);
     reportHistoryCache = data.reports || [];
-    return true;
+    renderHistoryList(reportHistoryCache);
+    $("#stat-report-count").textContent = String(data.count);
+    return reportHistoryCache.length > 0;
   } catch (e) {
-    sel.innerHTML = `<option value="">Failed to load history</option>`;
+    const text = $("#history-select-text");
+    if (text) text.textContent = "Failed to load history";
     showToast(e.message, "error");
     return false;
   }
+}
+
+function initHistorySelect() {
+  const btn = $("#history-select-btn");
+  const wrap = $("#history-select");
+
+  btn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (wrap?.classList.contains("open")) closeHistoryDropdown();
+    else openHistoryDropdown();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#history-select")) closeHistoryDropdown();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeHistoryDropdown();
+  });
 }
 
 async function loadLatestReport() {
@@ -967,17 +1078,19 @@ function initTabs() {
 /* ── History load ────────────────────────────────────────── */
 
 function loadSelectedHistory() {
-  const sel = $("#recent-select");
-  const opt = sel.selectedOptions[0];
-  if (!opt?._reportData) return;
+  if (!selectedHistoryEntry?.report) {
+    showToast("Select a report from the list first", "error");
+    return;
+  }
+  const rep = selectedHistoryEntry.report;
   renderReport({
-    thread_id: opt._meta?.id?.toString() || "history",
-    executive_summary: opt._reportData.executive_summary,
-    recommendations: opt._reportData.recommendations,
-    anomalies_count: opt._reportData.anomalies?.length || 0,
-    escalations_count: opt._reportData.escalations?.length || 0,
-    report: opt._reportData,
-    agent_outputs: opt._reportData.raw_agent_outputs || {},
+    thread_id: String(selectedHistoryEntry.id),
+    executive_summary: rep.executive_summary,
+    recommendations: rep.recommendations,
+    anomalies_count: selectedHistoryEntry.anomaly_count ?? rep.anomalies?.length ?? 0,
+    escalations_count: selectedHistoryEntry.escalation_count ?? rep.escalations?.length ?? 0,
+    report: rep,
+    agent_outputs: rep.raw_agent_outputs || {},
   });
   showToast("Report loaded from history");
 }
@@ -988,12 +1101,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.body.classList.remove("scroll-locked", "help-open");
   setLoading(false);
   initTheme();
+  const authed = await initAuth();
+  if (!authed) return;
   checkHealth();
   initTabs();
   initHelp();
   initAnomalyFilters();
   initVesselFilters();
   initVesselCardClicks();
+  initHistorySelect();
   initKeyboardShortcuts();
 
   const hasHistory = await loadHistory();
@@ -1003,6 +1119,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#btn-cancel-pipeline")?.addEventListener("click", cancelPipeline);
   $("#btn-load-history").addEventListener("click", loadSelectedHistory);
   $("#btn-open-docs").addEventListener("click", () => window.open("/docs", "_blank"));
+  $("#btn-logout")?.addEventListener("click", logout);
   $("#btn-refresh")?.addEventListener("click", refreshDashboard);
   $("#btn-export-csv")?.addEventListener("click", exportAnomaliesCsv);
   $("#btn-export-json")?.addEventListener("click", exportReportJson);

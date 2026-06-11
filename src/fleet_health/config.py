@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     sqlite_db_path: str = ""
     log_level: str = "INFO"
 
+    # Dashboard login (set AUTH_ENABLED=false to disable gate)
+    auth_enabled: bool = True
+    auth_username: str = "admin"
+    auth_password: str = "fleetops"
+    session_secret: str = "change-me-in-production"
+    session_ttl_hours: int = 24
+
     # Anomaly detection thresholds
     fuel_overconsumption_pct: float = 10.0
     schedule_slippage_hours: float = 6.0

@@ -3,17 +3,19 @@
 import asyncio
 import json
 import logging
+import secrets
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from fleet_health import __version__
 from fleet_health.agents.graph import run_pipeline
+from fleet_health.auth import COOKIE_NAME, create_session_token, verify_session_token
 from fleet_health.config import settings
 from fleet_health.memory.sqlite_store import memory_store
 from fleet_health.schemas.models import FleetHealthReport, FleetReportRequest
@@ -44,6 +46,52 @@ app.add_middleware(
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+AUTH_PUBLIC_PATHS = {
+    "/login",
+    "/health",
+    "/api/v1/health",
+    "/api",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+}
+AUTH_PUBLIC_PREFIXES = ("/static", "/api/v1/auth")
+
+
+def _session_user(request: Request) -> str | None:
+    token = request.cookies.get(COOKIE_NAME)
+    session = verify_session_token(token, settings.session_secret)
+    return session.get("user") if session else None
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if not settings.auth_enabled:
+        return await call_next(request)
+    path = request.url.path
+    if path in AUTH_PUBLIC_PATHS or any(path.startswith(p) for p in AUTH_PUBLIC_PREFIXES):
+        return await call_next(request)
+    if not _session_user(request):
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        return RedirectResponse(url="/login", status_code=302)
+    return await call_next(request)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    username: str
+    redirect: str = "/"
+
+
+class AuthUserResponse(BaseModel):
+    username: str
+    authenticated: bool = True
+
 
 class ReportResponse(BaseModel):
     thread_id: str
@@ -60,6 +108,7 @@ class HealthResponse(BaseModel):
     version: str
     anthropic_configured: bool
     sqlite_path: str
+    auth_enabled: bool = False
 
 
 @app.get("/health", response_model=HealthResponse, tags=["health"])
@@ -70,6 +119,7 @@ async def health_check() -> HealthResponse:
         version=__version__,
         anthropic_configured=bool(settings.anthropic_api_key),
         sqlite_path=str(settings.db_path),
+        auth_enabled=settings.auth_enabled,
     )
 
 
@@ -96,11 +146,73 @@ async def serve_live_dashboard() -> FileResponse:
     return FileResponse(live)
 
 
+@app.get("/login", tags=["dashboard"], include_in_schema=False)
+async def serve_login() -> FileResponse:
+    """Sign-in page for the operations dashboard."""
+    login = STATIC_DIR / "login.html"
+    if not login.exists():
+        raise HTTPException(status_code=404, detail="Login page not found")
+    return FileResponse(login)
+
+
+def _credentials_valid(username: str, password: str) -> bool:
+    user_ok = secrets.compare_digest(username, settings.auth_username)
+    pass_ok = secrets.compare_digest(password, settings.auth_password)
+    return user_ok and pass_ok
+
+
+@app.post("/api/v1/auth/login", response_model=LoginResponse, tags=["auth"])
+async def login(body: LoginRequest) -> JSONResponse:
+    """Authenticate and issue a session cookie."""
+    username = body.username.strip()
+    password = body.password
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    if not settings.auth_enabled:
+        response = JSONResponse(LoginResponse(username=username).model_dump())
+        return response
+    if not _credentials_valid(username, password):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = create_session_token(
+        username, settings.session_secret, settings.session_ttl_hours
+    )
+    response = JSONResponse(LoginResponse(username=username).model_dump())
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=settings.session_ttl_hours * 3600,
+        path="/",
+    )
+    return response
+
+
+@app.post("/api/v1/auth/logout", tags=["auth"])
+async def logout() -> JSONResponse:
+    """Clear the session cookie."""
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return response
+
+
+@app.get("/api/v1/auth/me", response_model=AuthUserResponse, tags=["auth"])
+async def auth_me(request: Request) -> AuthUserResponse:
+    """Return the current authenticated user."""
+    if not settings.auth_enabled:
+        return AuthUserResponse(username="guest", authenticated=False)
+    user = _session_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return AuthUserResponse(username=user)
+
+
 @app.get("/api", tags=["health"])
 async def api_root() -> dict[str, str]:
     return {
         "service": "Fleet Health & Delivery Report API",
         "dashboard": "/",
+        "login": "/login",
         "live_dashboard": "/live",
         "docs": "/docs",
         "health": "/health",

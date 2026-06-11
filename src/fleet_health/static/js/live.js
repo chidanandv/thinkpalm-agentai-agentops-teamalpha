@@ -69,7 +69,11 @@ function initParticles() {
 /* ── API ─────────────────────────────────────────────────── */
 
 async function api(path) {
-  const res = await fetch(path, { headers: { Accept: "application/json" } });
+  const res = await fetch(path, { headers: { Accept: "application/json" }, credentials: "include" });
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("Not authenticated");
+  }
   if (!res.ok) throw new Error(res.statusText);
   return res.json();
 }
@@ -314,5 +318,9 @@ document.addEventListener("DOMContentLoaded", () => {
   initClock();
   syncData();
   $("#btn-live-refresh")?.addEventListener("click", syncData);
+  $("#btn-live-logout")?.addEventListener("click", async () => {
+    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+    window.location.href = "/login";
+  });
   setInterval(syncData, 60000);
 });
