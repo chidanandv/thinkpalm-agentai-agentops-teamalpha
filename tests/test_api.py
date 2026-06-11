@@ -19,6 +19,30 @@ def test_root_endpoint():
     assert "text/html" in response.headers.get("content-type", "")
     assert "Fleet Health" in response.text
     assert "User Guide" in response.text
+    assert "Command Center" in response.text
+    assert "Sign out" in response.text
+
+
+def test_live_dashboard():
+    response = client.get("/live")
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+    assert "Fleet Command Center" in response.text
+    assert "Operations Dashboard" in response.text
+
+
+def test_login_page():
+    response = client.get("/login")
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+    assert "Sign in" in response.text
+    assert "Fleet Health" in response.text
+
+
+def test_auth_me_guest_when_disabled():
+    response = client.get("/api/v1/auth/me")
+    assert response.status_code == 200
+    assert response.json()["username"] == "guest"
 
 
 def test_api_root():

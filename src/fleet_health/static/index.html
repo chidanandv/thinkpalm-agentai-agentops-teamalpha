@@ -7,9 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/dashboard.css?v=10" />
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=13" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/js/dashboard.js?v=10" defer></script>
+  <script src="/static/js/dashboard.js?v=13" defer></script>
 </head>
 <body>
   <div class="ambient" aria-hidden="true"></div>
@@ -29,8 +29,11 @@
     <div class="topbar-actions">
       <span id="api-status" class="status-pill" data-state="checking">API</span>
       <span id="llm-status" class="status-pill muted" data-state="unknown">LLM</span>
+      <span id="user-pill" class="status-pill muted" hidden></span>
       <button type="button" id="btn-theme" class="btn btn-icon" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+      <a href="/live" class="btn btn-ghost btn-nav-live">Command Center</a>
       <button type="button" id="btn-open-guide" class="btn btn-ghost">User Guide</button>
+      <button type="button" id="btn-logout" class="btn btn-ghost">Sign out</button>
       <button type="button" id="btn-open-docs" class="btn btn-ghost">API Docs</button>
     </div>
   </header>
@@ -49,13 +52,26 @@
 
       <section class="sidebar-section">
         <h2>Report history</h2>
-        <label class="field-label" for="recent-select">Recent reports</label>
-        <select id="recent-select" class="input">
-          <option value="">Loading history…</option>
-        </select>
-        <button type="button" id="btn-load-history" class="btn btn-secondary btn-block" disabled>
-          Load selected report
-        </button>
+        <div class="field-group history-field">
+          <label class="field-label" id="history-select-label">Recent reports</label>
+          <div class="custom-select" id="history-select">
+            <button
+              type="button"
+              class="custom-select-btn"
+              id="history-select-btn"
+              aria-expanded="false"
+              aria-haspopup="listbox"
+              aria-labelledby="history-select-label history-select-text"
+            >
+              <span class="custom-select-text" id="history-select-text">Loading history…</span>
+              <span class="custom-select-chevron" aria-hidden="true"></span>
+            </button>
+            <ul class="custom-select-list" id="history-select-list" role="listbox" hidden></ul>
+          </div>
+          <button type="button" id="btn-load-history" class="btn btn-secondary btn-block" disabled>
+            Load selected report
+          </button>
+        </div>
       </section>
 
       <section class="sidebar-section" id="sidebar-alerts" hidden>
