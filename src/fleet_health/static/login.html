@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — Fleet Health</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/login.css?v=1" />
+  <script src="/static/js/login.js?v=2" defer></script>
+</head>
+<body>
+  <canvas id="login-particles" aria-hidden="true"></canvas>
+  <div class="login-ambient" aria-hidden="true"></div>
+
+  <main class="login-shell">
+    <section class="login-card">
+      <div class="login-brand">
+        <div class="login-logo pulse">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 18h18M5 14l7-9 7 9M8 14h8v4H8z"/>
+          </svg>
+        </div>
+        <h1>Fleet Health</h1>
+        <p>Operations Center · Sign in to continue</p>
+      </div>
+
+      <form id="login-form" class="login-form" novalidate>
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" autocomplete="username" required placeholder="Enter username" />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="Enter password" />
+        </div>
+        <p id="login-error" class="login-error" hidden></p>
+        <button type="submit" class="login-btn" id="login-btn">
+          <span class="login-btn-label">Sign in</span>
+          <span class="login-spinner" hidden></span>
+        </button>
+      </form>
+
+      <p class="login-hint">Demo: <code>admin</code> / <code>fleetops</code></p>
+    </section>
+
+    <footer class="login-footer">
+      <span>ThinkPalm AgentAI — AgentOps Team Alpha</span>
+    </footer>
+  </main>
+</body>
+</html>
